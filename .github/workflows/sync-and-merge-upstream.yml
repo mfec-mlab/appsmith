@@ -16,7 +16,7 @@ jobs:
           upstream_repo: https://github.com/appsmithorg/appsmith
           upstream_branch: release
           downstream_branch: release
-          token: ${{ env.WORKFLOW_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           # fetch_args: ${{ env.FETCH_ARGS }}
           # merge_args: ${{ env.MERGE_ARGS }}
           # push_args: ${{ env.PUSH_ARGS }}
