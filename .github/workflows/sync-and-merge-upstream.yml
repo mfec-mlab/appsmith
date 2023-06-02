@@ -10,14 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Sync and merge upstream repository with your current repository
-        uses: dabreadman/sync-upstream-repo@v1.3.0
+      - name: GitHub Repo Sync
+        uses: repo-sync/github-sync@v2.3.0
         with: 
-          upstream_repo: https://github.com/appsmithorg/appsmith
-          upstream_branch: release
+          source_repo: https://github.com/appsmithorg/appsmith
+          source_branch: release
           downstream_branch: release
-          token: ${{ secrets.GITHUB_TOKEN }}
-          # fetch_args: ${{ env.FETCH_ARGS }}
-          # merge_args: ${{ env.MERGE_ARGS }}
-          # push_args: ${{ env.PUSH_ARGS }}
-          # spawn_logs: ${{ env.SPAWN_LOGS }}
+          github_token: ${{ github.token }}
+          sync_tags: "true"
