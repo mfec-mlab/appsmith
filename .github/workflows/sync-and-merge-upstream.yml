@@ -6,7 +6,9 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
+      
     steps:
       - uses: actions/checkout@v3
 
@@ -16,5 +18,5 @@ jobs:
           source_repo: https://github.com/appsmithorg/appsmith
           source_branch: release
           downstream_branch: release
-          github_token: ${{ github.token }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           sync_tags: "true"
