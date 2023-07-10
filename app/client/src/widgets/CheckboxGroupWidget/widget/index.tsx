@@ -7,7 +7,7 @@ import { EventType } from "constants/AppsmithActionConstants/ActionConstants";
 import type { TextSize, WidgetType } from "constants/WidgetConstants";
 import type { ValidationResponse } from "constants/WidgetValidation";
 import { ValidationTypes } from "constants/WidgetValidation";
-import type { Stylesheet } from "entities/AppTheming";
+import type { SetterConfig, Stylesheet } from "entities/AppTheming";
 import { EvaluationSubstitutionType } from "entities/DataTree/dataTreeFactory";
 import { compact, xor } from "lodash";
 import { default as React } from "react";
@@ -25,7 +25,6 @@ import type { OptionProps, SelectAllState } from "../constants";
 import { SelectAllStates } from "../constants";
 import type { AutocompletionDefinitions } from "widgets/constants";
 import { isAutoLayout } from "utils/autoLayout/flexWidgetUtils";
-import { AppPositioningTypes } from "reducers/entityReducers/pageListReducer";
 
 export function defaultSelectedValuesValidation(
   value: unknown,
@@ -530,6 +529,29 @@ class CheckboxGroupWidget extends BaseWidget<
     }
   }
 
+  static getSetterConfig(): SetterConfig {
+    return {
+      __setters: {
+        setVisibility: {
+          path: "isVisible",
+          type: "boolean",
+        },
+        setDisabled: {
+          path: "isDisabled",
+          type: "boolean",
+        },
+        setRequired: {
+          path: "isRequired",
+          type: "boolean",
+        },
+        setSelectedOptions: {
+          path: "defaultSelectedValues",
+          type: "array",
+        },
+      },
+    };
+  }
+
   getPageView() {
     return (
       <CheckboxGroupComponent
@@ -541,9 +563,6 @@ class CheckboxGroupWidget extends BaseWidget<
               GRID_DENSITY_MIGRATION_V1 >
             1
           )
-        }
-        isAutoLayout={
-          this.props.appPositioningType === AppPositioningTypes.AUTO
         }
         isDisabled={this.props.isDisabled}
         isDynamicHeightEnabled={isAutoHeightEnabledForWidget(this.props)}
@@ -560,6 +579,7 @@ class CheckboxGroupWidget extends BaseWidget<
         labelTextSize={this.props.labelTextSize}
         labelTooltip={this.props.labelTooltip}
         labelWidth={this.getLabelWidth()}
+        minWidth={this.props.minWidth}
         onChange={this.handleCheckboxChange}
         onSelectAllChange={this.handleSelectAllChange}
         optionAlignment={this.props.optionAlignment}

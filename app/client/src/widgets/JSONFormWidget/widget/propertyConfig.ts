@@ -33,6 +33,19 @@ export const sourceDataValidationFn = (
     };
   }
 
+  if (_.isNumber(value) || _.isBoolean(value)) {
+    return {
+      isValid: false,
+      parsed: {},
+      messages: [
+        {
+          name: "ValidationError",
+          message: `Source data cannot be ${value}`,
+        },
+      ],
+    };
+  }
+
   if (_.isNil(value)) {
     return {
       isValid: true,
@@ -314,6 +327,7 @@ const generateButtonStyleControlsV2For = (prefix: string) => [
         propertyName: `${prefix}.buttonVariant`,
         label: "Button variant",
         controlType: "ICON_TABS",
+        defaultValue: ButtonVariantTypes.PRIMARY,
         fullWidth: true,
         helpText: "Sets the variant of the icon button",
         options: [
@@ -405,6 +419,7 @@ const generateButtonStyleControlsV2For = (prefix: string) => [
         label: "Position",
         helpText: "Sets the icon alignment of the button",
         controlType: "ICON_TABS",
+        defaultValue: "left",
         fullWidth: false,
         options: [
           {

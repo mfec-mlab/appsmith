@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { getCurrentApplication } from "@appsmith/selectors/applicationSelectors";
 import {
-  createMessage,
   APP_NAVIGATION_SETTING,
+  createMessage,
 } from "@appsmith/constants/messages";
 // import { ReactComponent as NavOrientationTopIcon } from "assets/icons/settings/nav-orientation-top.svg";
 // import { ReactComponent as NavOrientationSideIcon } from "assets/icons/settings/nav-orientation-side.svg";
@@ -23,6 +23,8 @@ import { updateApplication } from "@appsmith/actions/applicationActions";
 import { Spinner } from "design-system";
 import LogoInput from "@appsmith/pages/Editor/NavigationSettings/LogoInput";
 import SwitchSettingForLogoConfiguration from "./SwitchSettingForLogoConfiguration";
+import { FEATURE_FLAG } from "@appsmith/entities/FeatureFlag";
+import { useFeatureFlagCheck } from "selectors/featureFlagsSelectors";
 
 /**
  * TODO - @Dhruvik - ImprovedAppNav
@@ -46,6 +48,9 @@ export type LogoConfigurationSwitches = {
 function NavigationSettings() {
   const application = useSelector(getCurrentApplication);
   const applicationId = useSelector(getCurrentApplicationId);
+  const isAppLogoEnabled = useFeatureFlagCheck(
+    FEATURE_FLAG.APP_NAVIGATION_LOGO_UPLOAD,
+  );
   const dispatch = useDispatch();
   const [navigationSetting, setNavigationSetting] = useState(
     application?.applicationDetail?.navigationSetting,
@@ -388,21 +393,26 @@ function NavigationSettings() {
             updateSetting={updateSetting}
           />
 
-          <SwitchSettingForLogoConfiguration
-            keyName="logo"
-            label={createMessage(APP_NAVIGATION_SETTING.showLogoLabel)}
-            logoConfigurationSwitches={logoConfigurationSwitches}
-            setLogoConfigurationSwitches={setLogoConfigurationSwitches}
-          />
+          {(navigationSetting?.logoAssetId || isAppLogoEnabled) && (
+            <>
+              <SwitchSettingForLogoConfiguration
+                keyName="logo"
+                label={createMessage(APP_NAVIGATION_SETTING.showLogoLabel)}
+                logoConfigurationSwitches={logoConfigurationSwitches}
+                setLogoConfigurationSwitches={setLogoConfigurationSwitches}
+              />
 
-          {(navigationSetting?.logoConfiguration ===
-            NAVIGATION_SETTINGS.LOGO_CONFIGURATION.LOGO_AND_APPLICATION_TITLE ||
-            navigationSetting?.logoConfiguration ===
-              NAVIGATION_SETTINGS.LOGO_CONFIGURATION.LOGO_ONLY) && (
-            <LogoInput
-              navigationSetting={navigationSetting}
-              updateSetting={updateSetting}
-            />
+              {(navigationSetting?.logoConfiguration ===
+                NAVIGATION_SETTINGS.LOGO_CONFIGURATION
+                  .LOGO_AND_APPLICATION_TITLE ||
+                navigationSetting?.logoConfiguration ===
+                  NAVIGATION_SETTINGS.LOGO_CONFIGURATION.LOGO_ONLY) && (
+                <LogoInput
+                  navigationSetting={navigationSetting}
+                  updateSetting={updateSetting}
+                />
+              )}
+            </>
           )}
 
           <SwitchSettingForLogoConfiguration

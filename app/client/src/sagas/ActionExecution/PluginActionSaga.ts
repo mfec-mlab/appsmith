@@ -1,5 +1,15 @@
-import { all, call, put, select, take, takeLatest } from "redux-saga/effects";
 import {
+  all,
+  call,
+  put,
+  select,
+  take,
+  takeEvery,
+  takeLatest,
+} from "redux-saga/effects";
+import * as Sentry from "@sentry/react";
+import {
+  clearActionResponse,
   executePluginActionError,
   executePluginActionRequest,
   executePluginActionSuccess,
@@ -135,6 +145,10 @@ import { toast } from "design-system";
 import type { TRunDescription } from "workers/Evaluation/fns/actionFns";
 import { DEBUGGER_TAB_KEYS } from "components/editorComponents/Debugger/helpers";
 import { FILE_SIZE_LIMIT_FOR_BLOBS } from "constants/WidgetConstants";
+import { getActionsForCurrentPage } from "selectors/entitiesSelector";
+import type { ActionData } from "reducers/entityReducers/actionsReducer";
+import { handleStoreOperations } from "./StoreActionSaga";
+import { fetchPage } from "actions/pageActions";
 import type { Datasource } from "entities/Datasource";
 
 enum ActionResponseDataTypes {
@@ -698,6 +712,7 @@ function* runActionSaga(
   reduxAction: ReduxAction<{
     id: string;
     paginationField: PaginationField;
+    skipOpeningDebugger: boolean;
   }>,
 ) {
   const actionId = reduxAction.payload.id;
@@ -745,7 +760,9 @@ function* runActionSaga(
 
   const { id, paginationField } = reduxAction.payload;
   // open response tab in debugger on exection of action.
-  yield call(openDebugger);
+  if (!reduxAction.payload.skipOpeningDebugger) {
+    yield call(openDebugger);
+  }
 
   let payload = EMPTY_RESPONSE;
   let isError = true;
@@ -950,11 +967,31 @@ function* runActionSaga(
 
 function* executeOnPageLoadJSAction(pageAction: PageAction) {
   const collectionId = pageAction.collectionId;
+  const pageId: string | undefined = yield select(getCurrentPageId);
+
   if (collectionId) {
     const collection: JSCollection = yield select(
       getJSCollection,
       collectionId,
     );
+
+    if (!collection) {
+      Sentry.captureException(
+        new Error(
+          "Collection present in layoutOnLoadActions but no collection exists ",
+        ),
+        {
+          extra: {
+            collectionId,
+            actionId: pageAction.id,
+            pageId,
+          },
+        },
+      );
+
+      return;
+    }
+
     const jsAction = collection.actions.find(
       (action) => action.id === pageAction.id,
     );
@@ -1411,6 +1448,43 @@ function* openDebugger() {
   yield put(setDebuggerSelectedTab(DEBUGGER_TAB_KEYS.RESPONSE_TAB));
 }
 
+// Function to clear the action responses for the actions which are not executeOnLoad.
+function* clearTriggerActionResponse() {
+  const currentPageActions: ActionData[] = yield select(
+    getActionsForCurrentPage,
+  );
+  for (const action of currentPageActions) {
+    // Clear the action response if the action has data and is not executeOnLoad.
+    if (action.data && !action.config.executeOnLoad) {
+      yield put(clearActionResponse(action.config.id));
+    }
+  }
+}
+
+// Function to soft refresh the all the actions on the page.
+function* softRefreshActionsSaga() {
+  //get current pageId
+  const pageId: string = yield select(getCurrentPageId);
+  // Fetch the page data before refreshing the actions.
+  yield put(fetchPage(pageId));
+  //wait for the page to be fetched.
+  yield take([
+    ReduxActionErrorTypes.FETCH_PAGE_ERROR,
+    ReduxActionTypes.FETCH_PAGE_SUCCESS,
+  ]);
+  // Clear appsmith store
+  yield call(handleStoreOperations, [
+    {
+      payload: null,
+      type: "CLEAR_STORE",
+    },
+  ]);
+  // Clear all the action responses on the page
+  yield call(clearTriggerActionResponse);
+  //Rerun all the page load actions on the page
+  yield call(executePageLoadActionsSaga);
+}
+
 export function* watchPluginActionExecutionSagas() {
   yield all([
     takeLatest(ReduxActionTypes.RUN_ACTION_REQUEST, runActionSaga),
@@ -1422,6 +1496,7 @@ export function* watchPluginActionExecutionSagas() {
       ReduxActionTypes.EXECUTE_PAGE_LOAD_ACTIONS,
       executePageLoadActionsSaga,
     ),
-    takeLatest(ReduxActionTypes.EXECUTE_JS_UPDATES, makeUpdateJSCollection),
+    takeLatest(ReduxActionTypes.PLUGIN_SOFT_REFRESH, softRefreshActionsSaga),
+    takeEvery(ReduxActionTypes.EXECUTE_JS_UPDATES, makeUpdateJSCollection),
   ]);
 }

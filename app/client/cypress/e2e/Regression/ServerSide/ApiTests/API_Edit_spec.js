@@ -1,12 +1,17 @@
 const testdata = require("../../../../fixtures/testdata.json");
 const apiwidget = require("../../../../locators/apiWidgetslocator.json");
-const dsl = require("../../../../fixtures/uiBindDsl.json");
-const explorer = require("../../../../locators/explorerlocators.json");
+
+import {
+  agHelper,
+  entityExplorer,
+  entityItems,
+} from "../../../../support/Objects/ObjectsCore";
 
 describe("API Panel Test Functionality", function () {
   before(() => {
-    cy.addDsl(dsl);
+    agHelper.AddDsl("uiBindDsl");
   });
+
   it("1. Test Search API fetaure", function () {
     cy.log("Login Successful");
     cy.NavigateToAPI_Panel();
@@ -25,15 +30,13 @@ describe("API Panel Test Functionality", function () {
       testdata.Get,
     );
     cy.ResponseStatusCheck(testdata.successStatusCode);
-    cy.CheckAndUnfoldEntityItem("Queries/JS");
-    cy.get(".t--entity-name:contains('FirstAPI')").should("be.visible");
-    cy.hoverAndClick("FirstAPI");
-    cy.selectAction("Edit name");
-    //cy.RenameEntity(tabname);
-    cy.get(explorer.editEntity).last().type("SecondAPI", { force: true });
-    cy.DeleteAPI();
-    cy.wait(2000);
-    cy.get(".t--entity-name:contains('SecondAPI')").should("not.exist");
+    entityExplorer.SelectEntityByName("FirstAPI", "Queries/JS");
+    entityExplorer.RenameEntityFromExplorer("FirstAPI", "SecondAPI", true);
+    agHelper.ActionContextMenuWithInPane({
+      action: "Delete",
+      entityType: entityItems.Api,
+    });
+    entityExplorer.AssertEntityAbsenceInExplorer("SecondAPI");
   });
 
   it("2. Should update loading state after cancellation of confirmation for run query", function () {
@@ -76,8 +79,8 @@ describe("API Panel Test Functionality", function () {
       value: "mimeType='application/vnd.google-apps.spreadsheet'",
     });
   });
-  // skipping test due to bug in evaulated value introduced by ADS changes
-  it.skip("5. Shows evaluated value pane when url field is focused", function () {
+
+  it("5. Shows evaluated value pane when url field is focused", function () {
     cy.NavigateToAPI_Panel();
     cy.CreateAPI("TestAPI");
     cy.get(".CodeMirror textarea")
@@ -90,6 +93,9 @@ describe("API Panel Test Functionality", function () {
         { force: true, parseSpecialCharSequences: false },
       )
       .wait(3000)
+      .click({
+        force: true,
+      })
       .type("{enter}", { parseSpecialCharSequences: true });
 
     cy.validateEvaluatedValue(

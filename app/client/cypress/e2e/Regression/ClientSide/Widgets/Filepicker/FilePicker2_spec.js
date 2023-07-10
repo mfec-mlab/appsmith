@@ -1,5 +1,4 @@
 const commonlocators = require("../../../../../locators/commonlocators.json");
-const dsl = require("../../../../../fixtures/newFormDsl.json");
 import * as _ from "../../../../../support/Objects/ObjectsCore";
 
 describe("FilePicker Widget Functionality", function () {
@@ -9,7 +8,7 @@ describe("FilePicker Widget Functionality", function () {
 
   beforeEach(() => {
     _.agHelper.RestoreLocalStorageCache();
-    cy.addDsl(dsl);
+    _.agHelper.AddDsl("newFormDsl");
   });
 
   it("1. Create API to be used in Filepicker", function () {
@@ -19,8 +18,8 @@ describe("FilePicker Widget Functionality", function () {
     cy.CreateAPI("FirstAPI");
     cy.log("Creation of FirstAPI Action successful");
     cy.enterDatasourceAndPath(
-      this.data.paginationUrl,
-      this.data.paginationParam,
+      this.dataSet.paginationUrl,
+      this.dataSet.paginationParam,
     );
     cy.SaveAndRunAPI();
   });
@@ -37,10 +36,12 @@ describe("FilePicker Widget Functionality", function () {
   it("3. It checks the loading state of filepicker on call the action", function () {
     _.entityExplorer.ExpandCollapseEntity("Container3");
     _.entityExplorer.SelectEntityByName("FilePicker1");
-    const fixturePath = "testFile.mov";
+    const fixturePath = "cypress/fixtures/testFile.mov";
     cy.executeDbQuery("FirstAPI", "onFilesSelected");
     cy.get(commonlocators.filePickerButton).click();
-    cy.get(commonlocators.filePickerInput).first().attachFile(fixturePath);
+    cy.get(commonlocators.filePickerInput).first().selectFile(fixturePath, {
+      force: true,
+    });
     cy.get(commonlocators.filePickerUploadButton).click();
     //cy.get(".ads-v2-spinner").should("have.length", 1);
     //eslint-disable-next-line cypress/no-unnecessary-waiting
@@ -50,7 +51,11 @@ describe("FilePicker Widget Functionality", function () {
 
   it("4. It checks the deletion of filepicker works as expected", function () {
     cy.get(commonlocators.filePickerButton).click();
-    cy.get(commonlocators.filePickerInput).first().attachFile("testFile.mov");
+    cy.get(commonlocators.filePickerInput)
+      .first()
+      .selectFile("cypress/fixtures/testFile.mov", {
+        force: true,
+      });
     cy.get(commonlocators.filePickerUploadButton).click();
     //eslint-disable-next-line cypress/no-unnecessary-waiting
     cy.wait(500);
@@ -60,7 +65,11 @@ describe("FilePicker Widget Functionality", function () {
     cy.wait(200);
     cy.get("button.uppy-Dashboard-Item-action--remove").click();
     cy.get("button.uppy-Dashboard-browse").click();
-    cy.get(commonlocators.filePickerInput).first().attachFile("testFile2.mov");
+    cy.get(commonlocators.filePickerInput)
+      .first()
+      .selectFile("cypress/fixtures/testFile2.mov", {
+        force: true,
+      });
     cy.get(commonlocators.filePickerUploadButton).click();
     //eslint-disable-next-line cypress/no-unnecessary-waiting
     cy.wait(500);

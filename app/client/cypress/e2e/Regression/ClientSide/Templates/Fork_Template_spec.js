@@ -1,12 +1,11 @@
 const commonlocators = require("../../../../locators/commonlocators.json");
 const templateLocators = require("../../../../locators/TemplatesLocators.json");
 import reconnectDatasourceLocators from "../../../../locators/ReconnectLocators.js";
-import { ObjectsRegistry } from "../../../../support/Objects/Registry";
-const { AggregateHelper, HomePage } = ObjectsRegistry;
+import * as _ from "../../../../support/Objects/ObjectsCore";
 
 describe("excludeForAirgap", "Fork a template to an workspace", () => {
   it("1. Fork a template to an workspace", () => {
-    cy.NavigateToHome();
+    _.homePage.NavigateToHome();
     cy.get(templateLocators.templatesTab).click();
     cy.wait(1000);
     cy.xpath(
@@ -26,10 +25,10 @@ describe("excludeForAirgap", "Fork a template to an workspace", () => {
   });
 
   it("2. Update query param on opening fork modal in template detailed view", () => {
-    cy.NavigateToHome();
+    _.homePage.NavigateToHome();
     cy.get(templateLocators.templatesTab).click();
     cy.get(templateLocators.templateCard).first().click();
-    AggregateHelper.CheckForErrorToast("INTERNAL_SERVER_ERROR");
+    _.agHelper.CheckForErrorToast("INTERNAL_SERVER_ERROR");
     cy.get(templateLocators.templateViewForkButton).click();
     cy.location().should((location) => {
       expect(location.search).to.eq("?showForkTemplateModal=true");
@@ -37,29 +36,30 @@ describe("excludeForAirgap", "Fork a template to an workspace", () => {
   });
 
   it("3. Hide template fork button if user does not have a valid workspace to fork", () => {
-    HomePage.NavigateToHome();
     // Mock user with App Viewer permission
     cy.intercept("/api/v1/applications/new", {
       fixture: "Templates/MockAppViewerUser.json",
     });
-    AggregateHelper.RefreshPage();
-    HomePage.SwitchToTemplatesTab();
-    AggregateHelper.Sleep(2000);
-    AggregateHelper.CheckForErrorToast(
+    _.templates.SwitchToTemplatesTab();
+    _.agHelper.Sleep(2000);
+    _.agHelper.CheckForErrorToast(
       "Internal server error while processing request",
     );
-    AggregateHelper.AssertElementExist(templateLocators.templateCard);
-    AggregateHelper.AssertElementAbsence(templateLocators.templateForkButton);
+    _.agHelper.AssertElementExist(templateLocators.templateCard);
+    _.agHelper.AssertElementAbsence(templateLocators.templateForkButton);
 
-    AggregateHelper.GetNClick(templateLocators.templateCard);
-    AggregateHelper.AssertElementExist(templateLocators.templateCard);
-    AggregateHelper.AssertElementAbsence(
-      templateLocators.templateViewForkButton,
-    );
+    _.agHelper.GetNClick(templateLocators.templateCard);
+    _.agHelper.AssertElementExist(templateLocators.templateCard);
+    _.agHelper.AssertElementAbsence(templateLocators.templateViewForkButton);
   });
 
   it("4. Check if tooltip is working in 'Reconnect Datasources'", () => {
-    cy.NavigateToHome();
+    _.homePage.NavigateToHome();
+    cy.get("body").then(($ele) => {
+      if ($ele.find(reconnectDatasourceLocators.Modal).length) {
+        cy.get(_.dataSources._skiptoApplicationBtn).click();
+      }
+    });
     cy.get(templateLocators.templatesTab).click();
     cy.wait(1000);
     cy.xpath(

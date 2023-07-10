@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   getImportedApplication,
@@ -27,11 +27,11 @@ import {
 } from "@appsmith/constants/messages";
 import {
   getDatasourceLoading,
+  getDatasourcePlugins,
+  getDatasources,
   getIsDatasourceTesting,
   getIsListing,
   getIsReconnectingDatasourcesModalOpen,
-  getPluginImages,
-  getPluginNames,
   getUnconfiguredDatasources,
 } from "selectors/entitiesSelector";
 import {
@@ -42,7 +42,6 @@ import {
   setWorkspaceIdForImport,
 } from "@appsmith/actions/applicationActions";
 import type { Datasource } from "entities/Datasource";
-import { AuthType } from "entities/Datasource";
 import DatasourceForm from "../DataSourceEditor";
 import AnalyticsUtil from "utils/AnalyticsUtil";
 import { useQuery } from "../utils";
@@ -64,6 +63,15 @@ import {
   Button,
   Text,
 } from "design-system";
+import { isEnvironmentConfigured } from "@appsmith/utils/Environments";
+import { keyBy } from "lodash";
+import type { Plugin } from "api/PluginApi";
+import {
+  isDatasourceAuthorizedForQueryCreation,
+  isGoogleSheetPluginDS,
+} from "utils/editorContextUtils";
+import { areEnvironmentsFetched } from "@appsmith/selectors/environmentSelectors";
+import type { AppState } from "@appsmith/reducers";
 
 const Section = styled.div`
   display: flex;
@@ -106,16 +114,6 @@ const ContentWrapper = styled.div`
         button:first-child {
           display: none;
         }
-      }
-    }
-
-    .t--collapse-top-border {
-      height: 1px;
-      margin-top: ${(props) => props.theme.spaces[10]}px;
-      margin-bottom: ${(props) => props.theme.spaces[10]}px;
-
-      &:first-child {
-        display: none;
       }
     }
 
@@ -163,10 +161,6 @@ const ListContainer = styled.div`
   width: 256px;
   padding-right: 8px;
 
-  .t--collapse-top-border {
-    display: none;
-  }
-
   .t--collapse-section-container {
     width: 90%;
     margin-left: 5%;
@@ -205,7 +199,7 @@ const DBFormWrapper = styled.div`
 
   > div {
     width: 100%;
-    height: calc(100% - 20px);
+    height: calc(100% - 68px); // Adding height offset of the buttons container
   }
   div[class^="RestAPIDatasourceForm__RestApiForm-"] {
     padding-top: 0px;
@@ -248,9 +242,21 @@ function ReconnectDatasourceModal() {
   const isModalOpen = useSelector(getIsReconnectingDatasourcesModalOpen);
   const workspaceId = useSelector(getWorkspaceIdForImport);
   const pageIdForImport = useSelector(getPageIdForImport);
-  const datasources = useSelector(getUnconfiguredDatasources);
-  const pluginImages = useSelector(getPluginImages);
-  const pluginNames = useSelector(getPluginNames);
+  const environmentsFetched = useSelector((state: AppState) =>
+    areEnvironmentsFetched(state, workspaceId),
+  );
+  const unconfiguredDatasources = useSelector(getUnconfiguredDatasources);
+  const unconfiguredDatasourceIds = unconfiguredDatasources.map(
+    (ds: Datasource) => ds.id,
+  );
+  const datasourcesList = useSelector(getDatasources);
+  const datasources = useMemo(() => {
+    return datasourcesList.filter((ds: Datasource) =>
+      unconfiguredDatasourceIds.includes(ds.id),
+    );
+  }, [datasourcesList, unconfiguredDatasourceIds]);
+  const pluginsArray = useSelector(getDatasourcePlugins);
+  const plugins = keyBy(pluginsArray, "id");
   const isLoading = useSelector(getIsListing);
   const isDatasourceTesting = useSelector(getIsDatasourceTesting);
   const isDatasourceUpdating = useSelector(getDatasourceLoading);
@@ -284,40 +290,42 @@ function ReconnectDatasourceModal() {
   const queryDS = datasources.find((ds) => ds.id === queryDatasourceId);
   const dsName = queryDS?.name;
   const orgId = queryDS?.workspaceId;
-  let pluginName = "";
-  if (!!queryDS?.pluginId) {
-    pluginName = pluginNames[queryDS.pluginId];
-  }
+
+  const checkIfDatasourceIsConfigured = (ds: Datasource | null) => {
+    if (!ds) return false;
+    const plugin = plugins[ds.pluginId];
+    const output = isGoogleSheetPluginDS(plugin?.packageName)
+      ? isDatasourceAuthorizedForQueryCreation(ds, plugin as Plugin)
+      : ds.datasourceStorages
+      ? isEnvironmentConfigured(ds)
+      : false;
+    return output;
+  };
 
   // when redirecting from oauth, processing the status
   if (isImport) {
     setIsImport(false);
     const status = queryParams.get("response_status");
     const display_message = queryParams.get("display_message");
-    const oauthReason = status;
-    const isReconnectDS = true;
-    AnalyticsUtil.logEvent("DATASOURCE_AUTHORIZE_RESULT", {
-      dsName,
-      oauthReason,
-      orgId,
-      pluginName,
-      isReconnectDS,
-    });
     if (status !== AuthorizationStatus.SUCCESS) {
       const message =
         status === AuthorizationStatus.APPSMITH_ERROR
           ? OAUTH_AUTHORIZATION_APPSMITH_ERROR
           : OAUTH_AUTHORIZATION_FAILED;
       toast.show(display_message || message, { kind: "error" });
+      AnalyticsUtil.logEvent("DATASOURCE_AUTH_COMPLETE", {
+        applicationId: queryAppId,
+        datasourceId: queryDatasourceId,
+        pageId: queryPageId,
+        oAuthPassOrFailVerdict: status,
+        workspaceId: orgId,
+        datasourceName: dsName,
+        pluginName: plugins[datasource?.pluginId || ""]?.name,
+      });
     } else if (queryDatasourceId) {
       dispatch(loadFilePickerAction());
       dispatch(getOAuthAccessToken(queryDatasourceId));
     }
-    AnalyticsUtil.logEvent("DATASOURCE_AUTH_COMPLETE", {
-      queryAppId,
-      queryDatasourceId,
-      queryPageId,
-    });
   }
 
   // should open reconnect datasource modal
@@ -358,12 +366,12 @@ function ReconnectDatasourceModal() {
 
   // todo uncomment this to fetch datasource config
   useEffect(() => {
-    if (isModalOpen && workspaceId) {
+    if (isModalOpen && workspaceId && environmentsFetched) {
       dispatch(
         initDatasourceConnectionDuringImportRequest(workspaceId as string),
       );
     }
-  }, [workspaceId, isModalOpen]);
+  }, [workspaceId, isModalOpen, environmentsFetched]);
 
   useEffect(() => {
     if (isModalOpen) {
@@ -378,14 +386,43 @@ function ReconnectDatasourceModal() {
     }
   }, [isModalOpen, isDatasourceTesting, isDatasourceUpdating]);
 
-  const handleClose = useCallback(() => {
+  const handleClose = (e: any) => {
+    // Some magic code to handle the scenario where the reconnect modal and google sheets
+    // file picker are both open.
+    // Check if the overlay of the modal was clicked
+    function isOverlayClicked(classList: DOMTokenList) {
+      return classList.contains("reconnect-datasource-modal");
+    }
+    // Check if the close button of the modal was clicked
+    function isCloseButtonClicked(e: HTMLDivElement) {
+      const dialogCloseButton = document.querySelector(
+        ".ads-v2-modal__content-header-close-button",
+      );
+      if (dialogCloseButton) {
+        return dialogCloseButton.contains(e);
+      }
+      return false;
+    }
+
+    let shouldClose = false;
+    if (e) {
+      shouldClose = isOverlayClicked(e.target.classList);
+      shouldClose = shouldClose || isCloseButtonClicked(e.target);
+      // If either the close button or the overlay was clicked close the modal
+      if (shouldClose) {
+        onClose();
+      }
+    }
+  };
+
+  const onClose = () => {
     localStorage.setItem("importedAppPendingInfo", "null");
     dispatch(setIsReconnectingDatasourcesModalOpen({ isOpen: false }));
     dispatch(setWorkspaceIdForImport(""));
     dispatch(setPageIdForImport(""));
     dispatch(resetDatasourceConfigForImportFetchedFlag());
     setSelectedDatasourceId("");
-  }, [dispatch, setIsReconnectingDatasourcesModalOpen, isModalOpen]);
+  };
 
   const onSelectDatasource = useCallback((ds: Datasource) => {
     setIsTesting(false);
@@ -394,8 +431,8 @@ function ReconnectDatasourceModal() {
     AnalyticsUtil.logEvent("RECONNECTING_DATASOURCE_ITEM_CLICK", {
       id: ds.id,
       name: ds.name,
-      pluginName: pluginNames[ds.id],
-      isConfigured: ds.isConfigured,
+      pluginName: plugins[ds.id]?.name,
+      isConfigured: checkIfDatasourceIsConfigured(ds),
     });
   }, []);
 
@@ -440,42 +477,35 @@ function ReconnectDatasourceModal() {
   // checking of full configured
   useEffect(() => {
     if (isModalOpen && !isTesting) {
-      // if selected datasource is gsheet datasource, it shouldn't be redirected to app immediately
-      if (queryParams.get("importForGit") !== "true" && datasources.length) {
-        const selectedDS = datasources.find(
-          (ds: Datasource) => ds.id === selectedDatasourceId,
-        );
-        if (selectedDS) {
-          const authType =
-            selectedDS.datasourceConfiguration?.authentication
-              ?.authenticationType;
-
-          if (authType === AuthType.OAUTH2) return;
-        }
-      }
       const id = selectedDatasourceId;
-      const pending = datasources.filter((ds: Datasource) => !ds.isConfigured);
+      const pending = datasources.filter(
+        (ds: Datasource) => !checkIfDatasourceIsConfigured(ds),
+      );
       if (pending.length > 0) {
-        let next: Datasource | undefined = undefined;
         if (id) {
-          const index = datasources.findIndex((ds: Datasource) => ds.id === id);
-          if (index > -1 && !datasources[index].isConfigured) {
+          // checking if the current datasource is still pending
+          const index = pending.findIndex((ds: Datasource) => ds.id === id);
+          if (index > -1) {
+            // don't do anything if the current datasource is still pending
             return;
           }
-          next = datasources
-            .slice(index + 1)
-            .find((ds: Datasource) => !ds.isConfigured);
         }
-        next = next || pending[0];
-        setSelectedDatasourceId(next.id);
-        setDatasource(next);
-        // when refresh, it should be opened.
-        const appInfo = {
-          appId: appId,
-          pageId: pageId,
-          datasourceId: next.id,
-        };
-        localStorage.setItem("importedAppPendingInfo", JSON.stringify(appInfo));
+        // goto next pending datasource
+        const next: Datasource = pending[0];
+        if (next && next.id) {
+          setSelectedDatasourceId(next.id);
+          setDatasource(next);
+          // when refresh, it should be opened.
+          const appInfo = {
+            appId: appId,
+            pageId: pageId,
+            datasourceId: next.id,
+          };
+          localStorage.setItem(
+            "importedAppPendingInfo",
+            JSON.stringify(appInfo),
+          );
+        }
       } else if (appURL) {
         // open application import successfule
         localStorage.setItem("importApplicationSuccess", "true");
@@ -493,21 +523,24 @@ function ReconnectDatasourceModal() {
         onClick={() => {
           onSelectDatasource(ds);
         }}
-        plugin={{
-          name: pluginNames[ds.pluginId],
-          image: pluginImages[ds.pluginId],
-        }}
+        plugin={plugins[ds.pluginId]}
         selected={ds.id === selectedDatasourceId}
       />
     );
   });
 
   const shouldShowDBForm =
-    isConfigFetched && !isLoading && !datasource?.isConfigured;
+    isConfigFetched && !isLoading && !checkIfDatasourceIsConfigured(datasource);
 
   return (
-    <Modal onOpenChange={handleClose} open={isModalOpen}>
-      <ModalContentWrapper data-testid="reconnect-datasource-modal">
+    <Modal open={isModalOpen}>
+      <ModalContentWrapper
+        data-testid="reconnect-datasource-modal"
+        onClick={handleClose}
+        onEscapeKeyDown={onClose}
+        onInteractOutside={handleClose}
+        overlayClassName="reconnect-datasource-modal"
+      >
         <ModalHeader>Reconnect datasources</ModalHeader>
         <ModalBodyWrapper>
           <BodyContainer>
@@ -534,7 +567,7 @@ function ReconnectDatasourceModal() {
                     pageId={pageId}
                   />
                 )}
-                {datasource?.isConfigured && SuccessMessages()}
+                {checkIfDatasourceIsConfigured(datasource) && SuccessMessages()}
               </DBFormWrapper>
 
               <SkipToAppWrapper>

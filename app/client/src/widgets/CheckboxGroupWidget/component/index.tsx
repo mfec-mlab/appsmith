@@ -1,5 +1,5 @@
 import React from "react";
-import styled, { css } from "styled-components";
+import styled from "styled-components";
 import type { Alignment } from "@blueprintjs/core";
 
 import { Classes } from "@blueprintjs/core";
@@ -28,7 +28,7 @@ export interface InputContainerProps {
   valid?: boolean;
   optionAlignment?: string;
   isDynamicHeightEnabled?: boolean;
-  isAutoLayout: boolean;
+  minWidth?: number;
 }
 
 const InputContainer = styled.div<ThemeProp & InputContainerProps>`
@@ -51,11 +51,8 @@ const InputContainer = styled.div<ThemeProp & InputContainerProps>`
   height: 100%;
   border: 1px solid transparent;
 
-  ${({ isAutoLayout }) =>
-    isAutoLayout &&
-    css`
-      min-width: 232px;
-    `}
+  ${({ minWidth }) => `
+    ${minWidth ? `min-width: ${minWidth}px;` : ""}`};
 
   .${Classes.CONTROL} {
     display: flex;
@@ -152,14 +149,13 @@ export interface CheckboxGroupComponentProps extends ComponentProps {
   labelTooltip?: string;
   accentColor: string;
   borderRadius: string;
-  isAutoLayout: boolean;
+  minWidth?: number;
 }
 function CheckboxGroupComponent(props: CheckboxGroupComponentProps) {
   const {
     accentColor,
     borderRadius,
     compactMode,
-    isAutoLayout,
     isDisabled,
     isDynamicHeightEnabled,
     isInline,
@@ -222,8 +218,8 @@ function CheckboxGroupComponent(props: CheckboxGroupComponentProps) {
       <InputContainer
         data-testid="checkbox-group-container"
         inline={isInline}
-        isAutoLayout={isAutoLayout}
         isDynamicHeightEnabled={isDynamicHeightEnabled}
+        minWidth={props.minWidth}
         optionAlignment={optionAlignment}
         optionCount={options.length}
       >

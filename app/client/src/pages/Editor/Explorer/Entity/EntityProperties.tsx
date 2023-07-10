@@ -36,6 +36,8 @@ const EntityInfoContainer = styled.div`
   max-height: ${BindingContainerMaxHeight}px;
   overflow-y: hidden;
   border-radius: var(--ads-v2-border-radius);
+  border: 1px solid var(--ads-v2-color-border-muted);
+  box-shadow: var(--ads-v2-shadow-popovers);
 `;
 
 const selectEntityInfo = (state: AppState) => state.ui.explorer.entityInfo;
@@ -152,6 +154,7 @@ export function EntityProperties() {
       break;
     case ENTITY_TYPE.ACTION:
       config = (entityDefinitions.ACTION as any)(entity as any);
+
       if (config) {
         entityProperties = Object.keys(config)
           .filter((k) => k.indexOf("!") === -1)
@@ -198,9 +201,12 @@ export function EntityProperties() {
       }
 
       if (isFunction(config)) config = config(entity);
+      const settersConfig =
+        WidgetFactory.getWidgetSetterConfig(type)?.__setters;
 
       entityProperties = Object.keys(config)
         .filter((k) => k.indexOf("!") === -1)
+        .filter((k) => settersConfig && !settersConfig[k])
         .map((widgetProperty) => {
           return {
             propertyName: widgetProperty,

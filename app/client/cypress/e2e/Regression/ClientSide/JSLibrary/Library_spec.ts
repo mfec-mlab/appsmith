@@ -1,32 +1,30 @@
 import HomePage from "../../../../locators/HomePage";
-import { WIDGET } from "../../../../locators/WidgetLocators";
-import { jsEditor } from "../../../../support/Objects/ObjectsCore";
 import * as _ from "../../../../support/Objects/ObjectsCore";
 
 describe("excludeForAirgap", "Tests JS Libraries", () => {
   it("1. Validates Library install/uninstall", () => {
     _.entityExplorer.ExpandCollapseEntity("Libraries");
-    _.installer.openInstaller();
+    _.installer.OpenInstaller();
     _.installer.installLibrary("uuidjs", "UUID");
     _.installer.uninstallLibrary("uuidjs");
     _.installer.assertUnInstall("uuidjs");
   });
 
   it("2. Checks for naming collision", () => {
-    _.entityExplorer.DragDropWidgetNVerify(WIDGET.TABLE, 200, 200);
+    _.entityExplorer.DragDropWidgetNVerify(_.draggableWidgets.TABLE, 200, 200);
     _.entityExplorer.NavigateToSwitcher("Explorer");
     _.entityExplorer.RenameEntityFromExplorer("Table1", "jsonwebtoken");
     _.entityExplorer.ExpandCollapseEntity("Libraries");
-    _.installer.openInstaller();
+    _.installer.OpenInstaller();
     _.installer.installLibrary("jsonwebtoken", "jsonwebtoken", false);
     _.agHelper.AssertContains("Name collision detected: jsonwebtoken");
   });
 
   it("3. Checks jspdf library", () => {
     _.entityExplorer.ExpandCollapseEntity("Libraries");
-    _.installer.openInstaller();
+    _.installer.OpenInstaller();
     _.installer.installLibrary("jspdf", "jspdf");
-    jsEditor.CreateJSObject(
+    _.jsEditor.CreateJSObject(
       `export default {
       myFun1: () => {
         const doc = new jspdf.jsPDF();
@@ -43,24 +41,26 @@ describe("excludeForAirgap", "Tests JS Libraries", () => {
         prettify: true,
       },
     );
-    jsEditor.RunJSObj();
+    _.jsEditor.RunJSObj();
     _.debuggerHelper.ClickResponseTab();
     _.agHelper.AssertContains("data:application/pdf;filename=generated.pdf");
   });
 
-  it("4. Checks installation in exported/duplicated app", () => {
+  it("4. Checks installation in exported/forked app", () => {
     _.homePage.NavigateToHome();
     _.homePage.ImportApp("library_export.json");
     _.agHelper.AssertContains("true");
+    _.agHelper.WaitUntilAllToastsDisappear();
 
-    //Checks installation in duplicated app
+    //Checks installation in forked app
     _.homePage.NavigateToHome();
-    _.homePage.DuplicateApplication("Library_export");
+    _.homePage.ForkApplication("Library_export");
     _.agHelper.AssertContains("true");
+    _.agHelper.WaitUntilAllToastsDisappear();
 
     //Deploy app and check installation
     _.deployMode.DeployApp();
-    _.agHelper.AssertContains("true");
+    _.agHelper.WaitUntilToastDisappear("true");
     _.deployMode.NavigateBacktoEditor();
     _.agHelper.AssertContains("true");
   });

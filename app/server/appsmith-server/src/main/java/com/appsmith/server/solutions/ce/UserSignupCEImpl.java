@@ -53,7 +53,6 @@ import static com.appsmith.external.constants.AnalyticsConstants.SUBSCRIBE_MARKE
 import static com.appsmith.server.constants.Appsmith.DEFAULT_ORIGIN_HEADER;
 import static com.appsmith.server.constants.EnvVariables.APPSMITH_ADMIN_EMAILS;
 import static com.appsmith.server.constants.EnvVariables.APPSMITH_DISABLE_TELEMETRY;
-import static com.appsmith.server.constants.EnvVariables.APPSMITH_INSTANCE_NAME;
 import static com.appsmith.server.constants.ce.FieldNameCE.EMAIL;
 import static com.appsmith.server.constants.ce.FieldNameCE.NAME;
 import static com.appsmith.server.constants.ce.FieldNameCE.ROLE;
@@ -76,20 +75,23 @@ public class UserSignupCEImpl implements UserSignupCE {
     private final EnvManager envManager;
     private final CommonConfig commonConfig;
     private final UserUtils userUtils;
+    private final NetworkUtils networkUtils;
 
     private static final ServerRedirectStrategy redirectStrategy = new DefaultServerRedirectStrategy();
 
     private static final WebFilterChain EMPTY_WEB_FILTER_CHAIN = serverWebExchange -> Mono.empty();
 
-    public UserSignupCEImpl(UserService userService,
-                            UserDataService userDataService,
-                            CaptchaService captchaService,
-                            AuthenticationSuccessHandler authenticationSuccessHandler,
-                            ConfigService configService,
-                            AnalyticsService analyticsService,
-                            EnvManager envManager,
-                            CommonConfig commonConfig,
-                            UserUtils userUtils) {
+    public UserSignupCEImpl(
+            UserService userService,
+            UserDataService userDataService,
+            CaptchaService captchaService,
+            AuthenticationSuccessHandler authenticationSuccessHandler,
+            ConfigService configService,
+            AnalyticsService analyticsService,
+            EnvManager envManager,
+            CommonConfig commonConfig,
+            UserUtils userUtils,
+            NetworkUtils networkUtils) {
 
         this.userService = userService;
         this.userDataService = userDataService;
@@ -100,6 +102,7 @@ public class UserSignupCEImpl implements UserSignupCE {
         this.envManager = envManager;
         this.commonConfig = commonConfig;
         this.userUtils = userUtils;
+        this.networkUtils = networkUtils;
     }
 
     /**
@@ -107,7 +110,8 @@ public class UserSignupCEImpl implements UserSignupCE {
      * login is successful, the authentication success handlers will be called directly.
      * This needed to be pulled out into a separate solution class since it was creating a circular autowiring error if
      * placed inside UserService.
-     * @param user User object representing the new user to be signed-up and then logged-in.
+     *
+     * @param user     User object representing the new user to be signed-up and then logged-in.
      * @param exchange ServerWebExchange object with details of the current web request.
      * @return Mono of User, published the saved user object with a non-null value for its `getId()`.
      */
@@ -119,23 +123,18 @@ public class UserSignupCEImpl implements UserSignupCE {
 
         if (!validateLoginPassword(user.getPassword())) {
             return Mono.error(new AppsmithException(
-                    AppsmithError.INVALID_PASSWORD_LENGTH, LOGIN_PASSWORD_MIN_LENGTH, LOGIN_PASSWORD_MAX_LENGTH)
-            );
+                    AppsmithError.INVALID_PASSWORD_LENGTH, LOGIN_PASSWORD_MIN_LENGTH, LOGIN_PASSWORD_MAX_LENGTH));
         }
 
-        Mono<UserSignupDTO> createUserAndSendEmailMono = userService.createUserAndSendEmail(user, exchange.getRequest().getHeaders().getOrigin())
+        Mono<UserSignupDTO> createUserAndSendEmailMono = userService
+                .createUserAndSendEmail(user, exchange.getRequest().getHeaders().getOrigin())
                 .elapsed()
                 .map(pair -> {
                     log.debug("UserSignupCEImpl::Time taken for create user and send email: {} ms", pair.getT1());
                     return pair.getT2();
                 });
 
-        return Mono
-                .zip(
-                        createUserAndSendEmailMono,
-                        exchange.getSession(),
-                        ReactiveSecurityContextHolder.getContext()
-                )
+        return Mono.zip(createUserAndSendEmailMono, exchange.getSession(), ReactiveSecurityContextHolder.getContext())
                 .switchIfEmpty(Mono.error(new AppsmithException(AppsmithError.INTERNAL_SERVER_ERROR)))
                 .flatMap(tuple -> {
                     final User savedUser = tuple.getT1().getUser();
@@ -143,47 +142,52 @@ public class UserSignupCEImpl implements UserSignupCE {
                     final WebSession session = tuple.getT2();
                     final SecurityContext securityContext = tuple.getT3();
 
-                    Authentication authentication = new UsernamePasswordAuthenticationToken(
-                            savedUser, null, savedUser.getAuthorities()
-                    );
+                    Authentication authentication =
+                            new UsernamePasswordAuthenticationToken(savedUser, null, savedUser.getAuthorities());
                     securityContext.setAuthentication(authentication);
                     session.getAttributes().put(DEFAULT_SPRING_SECURITY_CONTEXT_ATTR_NAME, securityContext);
 
                     final WebFilterExchange webFilterExchange = new WebFilterExchange(exchange, EMPTY_WEB_FILTER_CHAIN);
 
-                    MultiValueMap<String, String> queryParams = exchange.getRequest().getQueryParams();
+                    MultiValueMap<String, String> queryParams =
+                            exchange.getRequest().getQueryParams();
                     String redirectQueryParamValue = queryParams.getFirst(REDIRECT_URL_QUERY_PARAM);
 
                     /* TODO
-                       - Add testcases for SignUp service
-                            - Verify that Workspace is created for the user
-                            - Verify that first application is created inside created workspace when “redirectUrl” query parameter is not present in the request
-                            - Verify that first application is not created when “redirectUrl” query parameter is present in the request
-                     */
-                    boolean createApplication = StringUtils.isEmpty(redirectQueryParamValue) && !StringUtils.isEmpty(workspaceId);
+                      - Add testcases for SignUp service
+                           - Verify that Workspace is created for the user
+                           - Verify that first application is created inside created workspace when “redirectUrl” query parameter is not present in the request
+                           - Verify that first application is not created when “redirectUrl” query parameter is present in the request
+                    */
+                    boolean createApplication =
+                            StringUtils.isEmpty(redirectQueryParamValue) && !StringUtils.isEmpty(workspaceId);
                     // need to create default application
                     Mono<Integer> authenticationSuccessMono = authenticationSuccessHandler
-                            .onAuthenticationSuccess(webFilterExchange, authentication, createApplication, true, workspaceId)
+                            .onAuthenticationSuccess(
+                                    webFilterExchange, authentication, createApplication, true, workspaceId)
                             .thenReturn(1)
                             .elapsed()
                             .flatMap(pair -> {
-                                log.debug("UserSignupCEImpl::Time taken for authentication success: {} ms", pair.getT1());
+                                log.debug(
+                                        "UserSignupCEImpl::Time taken for authentication success: {} ms", pair.getT1());
                                 return Mono.just(pair.getT2());
                             });
-                    return authenticationSuccessMono
-                            .thenReturn(savedUser);
+                    return authenticationSuccessMono.thenReturn(savedUser);
                 });
     }
 
     /**
      * Creates a new user and logs them in, with the user details taken from the POST body, read as form-data.
+     *
      * @param exchange The `ServerWebExchange` instance representing the request.
      * @return Publisher of the created user object, with an `id` value.
      */
     public Mono<Void> signupAndLoginFromFormData(ServerWebExchange exchange) {
         String recaptchaToken = exchange.getRequest().getQueryParams().getFirst("recaptchaToken");
 
-        return captchaService.verify(recaptchaToken).flatMap(verified -> {
+        return captchaService
+                .verify(recaptchaToken)
+                .flatMap(verified -> {
                     if (!Boolean.TRUE.equals(verified)) {
                         return Mono.error(new AppsmithException(AppsmithError.GOOGLE_RECAPTCHA_FAILED));
                     }
@@ -214,7 +218,8 @@ public class UserSignupCEImpl implements UserSignupCE {
                     if (referer == null) {
                         referer = DEFAULT_ORIGIN_HEADER;
                     }
-                    final URIBuilder redirectUriBuilder = new URIBuilder(URI.create(referer)).setParameter("error", error.getMessage());
+                    final URIBuilder redirectUriBuilder =
+                            new URIBuilder(URI.create(referer)).setParameter("error", error.getMessage());
                     URI redirectUri;
                     try {
                         redirectUri = redirectUriBuilder.build();
@@ -227,7 +232,8 @@ public class UserSignupCEImpl implements UserSignupCE {
     }
 
     public Mono<User> signupAndLoginSuper(UserSignupRequestDTO userFromRequest, ServerWebExchange exchange) {
-        Mono<User> userMono = userService.isUsersEmpty()
+        Mono<User> userMono = userService
+                .isUsersEmpty()
                 .flatMap(isEmpty -> {
                     if (!Boolean.TRUE.equals(isEmpty)) {
                         return Mono.error(new AppsmithException(AppsmithError.UNAUTHORIZED_ACCESS));
@@ -242,18 +248,18 @@ public class UserSignupCEImpl implements UserSignupCE {
                     user.setPassword(userFromRequest.getPassword());
 
                     Mono<User> userMono1 = signupAndLogin(user, exchange);
-                    return userMono1
-                            .elapsed()
-                            .map(pair -> {
-                                log.debug("UserSignupCEImpl::Time taken to complete signupAndLogin: {} ms", pair.getT1());
-                                return pair.getT2();
-                            });
+                    return userMono1.elapsed().map(pair -> {
+                        log.debug("UserSignupCEImpl::Time taken to complete signupAndLogin: {} ms", pair.getT1());
+                        return pair.getT2();
+                    });
                 })
                 .flatMap(user -> {
-                    Mono<Boolean> makeSuperUserMono = userUtils.makeSuperUser(List.of(user))
+                    Mono<Boolean> makeSuperUserMono = userUtils
+                            .makeSuperUser(List.of(user))
                             .elapsed()
                             .map(pair -> {
-                                log.debug("UserSignupCEImpl::Time taken to complete makeSuperUser: {} ms", pair.getT1());
+                                log.debug(
+                                        "UserSignupCEImpl::Time taken to complete makeSuperUser: {} ms", pair.getT1());
                                 return pair.getT2();
                             });
                     return makeSuperUserMono.thenReturn(user);
@@ -263,21 +269,22 @@ public class UserSignupCEImpl implements UserSignupCE {
                     userData.setRole(userFromRequest.getRole());
                     userData.setUseCase(userFromRequest.getUseCase());
 
-                    Mono<UserData> userDataMono = userDataService.updateForUser(user, userData)
+                    Mono<UserData> userDataMono = userDataService
+                            .updateForUser(user, userData)
                             .elapsed()
                             .map(pair -> {
-                                log.debug("UserSignupCEImpl::Time taken to update user data for user: {} ms", pair.getT1());
+                                log.debug(
+                                        "UserSignupCEImpl::Time taken to update user data for user: {} ms",
+                                        pair.getT1());
                                 return pair.getT2();
                             });
 
-                    Mono<EnvChangesResponseDTO> applyEnvManagerChangesMono = envManager.applyChanges(Map.of(
+                    Mono<EnvChangesResponseDTO> applyEnvManagerChangesMono = envManager
+                            .applyChanges(Map.of(
                                     APPSMITH_DISABLE_TELEMETRY.name(),
                                     String.valueOf(!userFromRequest.isAllowCollectingAnonymousData()),
-                                    APPSMITH_INSTANCE_NAME.name(),
-                                    commonConfig.getInstanceName(),
                                     APPSMITH_ADMIN_EMAILS.name(),
-                                    user.getEmail()
-                            ))
+                                    user.getEmail()))
                             .elapsed()
                             .map(pair -> {
                                 log.debug("UserSignupCEImpl::Time taken to apply env changes: {} ms", pair.getT1());
@@ -294,23 +301,31 @@ public class UserSignupCEImpl implements UserSignupCE {
                      */
                     Mono<User> sendCreateSuperUserEvent = sendCreateSuperUserEventOnSeparateThreadMono(user);
 
-                    Mono<Boolean> installationSetupAnalyticsMono = sendInstallationSetupAnalyticsOnSeparateThreadMono(userFromRequest, user, userData);
+                    // In the past, we have seen "Installation Setup Complete" not getting triggered if subscribed
+                    // within
+                    // secondary functions, hence subscribing this in a separate thread to avoid getting cancelled
+                    // because
+                    // of any other secondary function mono throwing an exception
+                    sendInstallationSetupAnalytics(userFromRequest, user, userData)
+                            .subscribeOn(commonConfig.scheduler())
+                            .subscribe();
 
-                    Mono<Long> allSecondaryFunctions = Mono.when(userDataMono, installationSetupAnalyticsMono, applyEnvManagerChangesMono, sendCreateSuperUserEvent)
+                    Mono<Long> allSecondaryFunctions = Mono.when(
+                                    userDataMono, applyEnvManagerChangesMono, sendCreateSuperUserEvent)
                             .thenReturn(1L)
                             .elapsed()
                             .map(pair -> {
-                                log.debug("UserSignupCEImpl::Time taken to complete all secondary functions: {} ms", pair.getT1());
+                                log.debug(
+                                        "UserSignupCEImpl::Time taken to complete all secondary functions: {} ms",
+                                        pair.getT1());
                                 return pair.getT2();
                             });
                     return allSecondaryFunctions.thenReturn(user);
                 });
-        return userMono
-                .elapsed()
-                .map(pair -> {
-                    log.debug("UserSignupCEImpl::Time taken for the user mono to complete: {} ms", pair.getT1());
-                    return pair.getT2();
-                });
+        return userMono.elapsed().map(pair -> {
+            log.debug("UserSignupCEImpl::Time taken for the user mono to complete: {} ms", pair.getT1());
+            return pair.getT2();
+        });
     }
 
     public Mono<Void> signupAndLoginSuperFromFormData(ServerWebExchange exchange) {
@@ -332,7 +347,8 @@ public class UserSignupCEImpl implements UserSignupCE {
                         user.setUseCase(formData.getFirst("useCase"));
                     }
                     if (formData.containsKey("allowCollectingAnonymousData")) {
-                        user.setAllowCollectingAnonymousData("true".equals(formData.getFirst("allowCollectingAnonymousData")));
+                        user.setAllowCollectingAnonymousData(
+                                "true".equals(formData.getFirst("allowCollectingAnonymousData")));
                     }
                     if (formData.containsKey("signupForNewsletter")) {
                         user.setSignupForNewsletter("true".equals(formData.getFirst("signupForNewsletter")));
@@ -346,7 +362,8 @@ public class UserSignupCEImpl implements UserSignupCE {
                     if (referer == null) {
                         referer = DEFAULT_ORIGIN_HEADER;
                     }
-                    final URIBuilder redirectUriBuilder = new URIBuilder(URI.create(referer)).setParameter("error", error.getMessage());
+                    final URIBuilder redirectUriBuilder =
+                            new URIBuilder(URI.create(referer)).setParameter("error", error.getMessage());
                     URI redirectUri;
                     try {
                         redirectUri = redirectUriBuilder.build();
@@ -358,25 +375,24 @@ public class UserSignupCEImpl implements UserSignupCE {
                 });
     }
 
-    private Mono<Boolean> sendInstallationSetupAnalyticsOnSeparateThreadMono(UserSignupRequestDTO userFromRequest,
-                                                                             User user,
-                                                                             UserData userData) {
+    private Mono<Void> sendInstallationSetupAnalytics(
+            UserSignupRequestDTO userFromRequest, User user, UserData userData) {
 
-        Mono<String> getInstanceIdMono = configService.getInstanceId()
-                .elapsed()
-                .map(pair -> {
-                    log.debug("UserSignupCEImpl::Time taken to get instance ID: {} ms", pair.getT1());
-                    return pair.getT2();
-                });;
+        Mono<String> getInstanceIdMono = configService.getInstanceId().elapsed().map(pair -> {
+            log.debug("UserSignupCEImpl::Time taken to get instance ID: {} ms", pair.getT1());
+            return pair.getT2();
+        });
 
-        Mono<String> getExternalAddressMono = NetworkUtils.getExternalAddress().defaultIfEmpty("unknown")
+        Mono<String> getExternalAddressMono = networkUtils
+                .getExternalAddress()
+                .defaultIfEmpty("unknown")
                 .elapsed()
                 .map(pair -> {
                     log.debug("UserSignupCEImpl::Time taken to get external address: {} ms", pair.getT1());
                     return pair.getT2();
                 });
 
-        Mono.zip(getInstanceIdMono, getExternalAddressMono)
+        return Mono.zip(getInstanceIdMono, getExternalAddressMono)
                 .flatMap(tuple -> {
                     final String instanceId = tuple.getT1();
                     final String ip = tuple.getT2();
@@ -406,30 +422,34 @@ public class UserSignupCEImpl implements UserSignupCE {
                             newsletterSignedUpUserName,
                             ip);
 
-                    return analyticsService.sendEvent(
+                    return analyticsService
+                            .sendEvent(
                                     AnalyticsEvents.INSTALLATION_SETUP_COMPLETE.getEventName(),
                                     instanceId,
                                     analyticsProps,
-                                    false
-                            ).thenReturn(1L)
+                                    false)
+                            .thenReturn(1L)
                             .elapsed()
                             .map(pair -> {
-                                log.debug("UserSignupCEImpl::Time taken to send installation setup complete analytics event: {} ms", pair.getT1());
+                                log.debug(
+                                        "UserSignupCEImpl::Time taken to send installation setup complete analytics event: {} ms",
+                                        pair.getT1());
                                 return pair.getT2();
                             });
                 })
                 .elapsed()
                 .map(pair -> {
-                    log.debug("UserSignupCEImpl::Time taken to send installation setup analytics event: {} ms", pair.getT1());
+                    log.debug(
+                            "UserSignupCEImpl::Time taken to send installation setup analytics event: {} ms",
+                            pair.getT1());
                     return pair.getT2();
                 })
-                .subscribeOn(Schedulers.boundedElastic())
-                .subscribe();
-        return Mono.just(Boolean.TRUE);
+                .then();
     }
 
     private Mono<User> sendCreateSuperUserEventOnSeparateThreadMono(User user) {
-        analyticsService.sendObjectEvent(AnalyticsEvents.CREATE_SUPERUSER, user, null)
+        analyticsService
+                .sendObjectEvent(AnalyticsEvents.CREATE_SUPERUSER, user, null)
                 .elapsed()
                 .map(pair -> {
                     log.debug("UserSignupCEImpl::Time taken to send create super user event: {} ms", pair.getT1());

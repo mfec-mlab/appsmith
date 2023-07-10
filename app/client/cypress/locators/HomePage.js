@@ -10,7 +10,6 @@ export default {
   publishCrossButton: "span[icon='small-cross']",
   homePageID: "//div[@id='root']",
   appMoreIcon: ".t--application-card .ads-v2-button__content",
-  duplicateApp: "[data-testid=t--duplicate]",
   forkAppFromMenu: "[data-testid=t--fork-app]",
   exportAppFromMenu: "[data-testid=t--export-app]",
   forkAppWorkspaceButton: ".t--fork-app-to-workspace-button",
@@ -56,6 +55,7 @@ export default {
   shareApp: ".t--application-share-btn",
   enablePublicAccess:
     "//div[contains(@class, 't--share-public-toggle')]//input[@role='switch']",
+  enablePublicAccessSettingsPage: "[data-testid=t--embed-settings-application-public]",
   switchLabel: ".ads-v2-switch__label",
   closeBtn: ".ads-v2-modal__content-header-close-button",
   editModeInviteModalCloseBtn: ".ads-v2-modal__content-header-close-button",

@@ -1,7 +1,9 @@
 import { ObjectsRegistry } from "../../Objects/Registry";
+
 export class EmbedSettings {
   private agHelper = ObjectsRegistry.AggregateHelper;
   private appSettings = ObjectsRegistry.AppSettings;
+  private assertHelper = ObjectsRegistry.AssertHelper;
 
   public locators = {
     _getDimensionInput: (prefix: string) => `.t--${prefix}-dimension input`,
@@ -11,6 +13,10 @@ export class EmbedSettings {
     _restrictedText: "Embedding restricted",
     _disabledText: "Embedding disabled",
     _showNavigationBar: "[data-testid='show-navigation-bar-toggle']",
+    _enableForking: "[data-testid='forking-enabled-toggle']",
+    _confirmForking: "[data-testid='allow-forking']",
+    _enablePublicAccessSettingsPage:
+      "[data-testid=t--embed-settings-application-public]",
   };
 
   public OpenEmbedSettings() {
@@ -41,8 +47,37 @@ export class EmbedSettings {
     input.invoke("attr", "checked").then((value) => {
       if (value !== check) {
         this.agHelper.GetNClick(this.locators._showNavigationBar);
-        this.agHelper.ValidateNetworkStatus("@updateApplication");
+        this.assertHelper.AssertNetworkStatus("@updateApplication");
       }
     });
+  }
+
+  public ToggleMarkForkable(check: "true" | "false" = "true") {
+    const input = this.agHelper.GetElement(this.locators._enableForking);
+    input.invoke("attr", "checked").then((value) => {
+      if (value !== check) {
+        this.agHelper.GetNClick(this.locators._enableForking);
+
+        if (check) {
+          this.agHelper.GetNClick(this.locators._confirmForking);
+        }
+
+        this.assertHelper.AssertNetworkStatus("@updateApplication");
+      }
+    });
+  }
+
+  public TogglePublicAccess(check: true | false = true) {
+    this.agHelper
+      .GetElement(this.locators._enablePublicAccessSettingsPage)
+      .invoke("prop", "checked")
+      .then((isChecked) => {
+        if (isChecked !== check) {
+          this.agHelper.GetNClick(
+            this.locators._enablePublicAccessSettingsPage,
+          );
+          this.assertHelper.AssertNetworkStatus("@changeAccess");
+        }
+      });
   }
 }

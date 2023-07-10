@@ -1,8 +1,5 @@
-const dsl = require("../../../../fixtures/rundsl.json");
 const widgetsPage = require("../../../../locators/Widgets.json");
 const publish = require("../../../../locators/publishWidgetspage.json");
-const queryLocators = require("../../../../locators/QueryEditor.json");
-const datasource = require("../../../../locators/DatasourcesEditor.json");
 const testdata = require("../../../../fixtures/testdata.json");
 import * as _ from "../../../../support/Objects/ObjectsCore";
 
@@ -10,23 +7,16 @@ let datasourceName;
 
 describe("Binding the multiple widgets and validating default data", function () {
   before(() => {
-    cy.addDsl(dsl);
+    _.agHelper.AddDsl("rundsl");
   });
 
   it("1. Create a postgres datasource", function () {
-    cy.NavigateToDatasourceEditor();
-    cy.get(datasource.PostgreSQL).click();
-    cy.fillPostgresDatasourceForm();
-    cy.testSaveDatasource();
-    cy.get("@saveDatasource").then((httpResponse) => {
-      datasourceName = httpResponse.response.body.data.name;
+    _.dataSources.CreateDataSource("Postgres");
+    cy.get("@dsName").then(($dsName) => {
+      datasourceName = $dsName;
       //Create and runs query
-      cy.NavigateToActiveDSQueryPane(datasourceName);
-      cy.get(queryLocators.templateMenu).click();
-      _.dataSources.EnterQuery("select * from users limit 10");
-
+      _.dataSources.CreateQueryAfterDSSaved("select * from users limit 10");
       cy.EvaluateCurrentValue("select * from users limit 10");
-
       _.dataSources.RunQuery();
     });
   });
@@ -52,7 +42,7 @@ describe("Binding the multiple widgets and validating default data", function ()
   });
 
   it("3. Publish App and validate loading functionalty", function () {
-    cy.PublishtheApp();
+    _.deployMode.DeployApp();
     //eslint-disable-next-line cypress/no-unnecessary-waiting
     cy.wait(2000);
     cy.get(widgetsPage.widgetBtn).first().click({ force: true });

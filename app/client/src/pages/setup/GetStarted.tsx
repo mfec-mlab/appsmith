@@ -22,6 +22,7 @@ import { Field, formValueSelector, reduxForm } from "redux-form";
 import styled from "styled-components";
 import { DropdownWrapper, withDropdown } from "./common";
 import { roleOptions, useCaseOptions } from "./constants";
+import SetupForm from "./SetupForm";
 
 const ActionContainer = styled.div`
   margin-top: ${(props) => props.theme.spaces[15]}px;
@@ -41,22 +42,17 @@ type NonSuperUserFormData = {
   role_name?: string;
 };
 
-export function SuperUserForm(props: UserFormProps) {
+export function SuperUserForm() {
   return (
     <ActionContainer>
-      <StyledButton
-        className="t--welcome-form-get-started"
-        onClick={() => props.onGetStarted && props.onGetStarted()}
-        size="md"
-      >
-        {createMessage(WELCOME_ACTION)}
-      </StyledButton>
+      <SetupForm />
     </ActionContainer>
   );
 }
 
 const StyledNonSuperUserForm = styled.form`
   width: 400px;
+  margin-right: 3rem;
 `;
 
 const Space = styled.div`
@@ -122,17 +118,12 @@ function NonSuperUser(
       </DropdownWrapper>
       <ActionContainer>
         <StyledButton
-          className="t--get-started-button"
+          className="w-full t--get-started-button"
           isDisabled={props.invalid}
-          onClick={() =>
-            !props.invalid && // temp fix - design system needs to be fixed for disabling click
-            props.onGetStarted &&
-            props.onGetStarted(
-              props.role !== "other" ? props.role : props.role_name,
-              props.useCase,
-            )
-          }
-          size="md"
+          kind="primary"
+          renderAs="button"
+          size={"md"}
+          type="submit"
         >
           {createMessage(WELCOME_ACTION)}
         </StyledButton>

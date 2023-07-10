@@ -1,10 +1,16 @@
 import React from "react";
-import _, { merge } from "lodash";
+import { get, isEqual, isNil, map, memoize, omit } from "lodash";
 import { DATASOURCE_SAAS_FORM } from "@appsmith/constants/forms";
 import type { Datasource } from "entities/Datasource";
 import { ActionType } from "entities/Datasource";
 import type { InjectedFormProps } from "redux-form";
-import { getFormValues, isDirty, reduxForm } from "redux-form";
+import {
+  getFormValues,
+  isDirty,
+  reduxForm,
+  initialize,
+  getFormInitialValues,
+} from "redux-form";
 import type { RouteComponentProps } from "react-router";
 import { connect } from "react-redux";
 import type { AppState } from "@appsmith/reducers";
@@ -29,8 +35,11 @@ import {
 import DatasourceAuth from "pages/common/datasourceAuth";
 import EntityNotFoundPane from "../EntityNotFoundPane";
 import type { Plugin } from "api/PluginApi";
-import { isDatasourceAuthorizedForQueryCreation } from "utils/editorContextUtils";
-import { PluginPackageName } from "entities/Action";
+import {
+  isDatasourceAuthorizedForQueryCreation,
+  isGoogleSheetPluginDS,
+} from "utils/editorContextUtils";
+import type { PluginType } from "entities/Action";
 import AuthMessage from "pages/common/datasourceAuth/AuthMessage";
 import { isDatasourceInViewMode } from "selectors/ui";
 import {
@@ -59,7 +68,6 @@ import {
 import { getDatasourceErrorMessage } from "./errorUtils";
 import GoogleSheetFilePicker from "./GoogleSheetFilePicker";
 import DatasourceInformation from "./../DataSourceEditor/DatasourceSection";
-import { getConfigInitialValues } from "components/formControls/utils";
 import type { ControlProps } from "components/formControls/BaseControl";
 import { DSFormHeader } from "../DataSourceEditor/DSFormHeader";
 import Debugger, {
@@ -68,6 +76,7 @@ import Debugger, {
 } from "../DataSourceEditor/Debugger";
 import { showDebuggerFlag } from "selectors/debuggerSelectors";
 import { Form, ViewModeWrapper } from "../DataSourceEditor/DBForm";
+import { getCurrentEnvironment } from "@appsmith/utils/Environments";
 
 interface StateProps extends JSONtoFormProps {
   applicationId: string;
@@ -75,6 +84,7 @@ interface StateProps extends JSONtoFormProps {
   canDeleteDatasource?: boolean;
   canCreateDatasourceActions?: boolean;
   isSaving: boolean;
+  isTesting: boolean;
   isDeleting: boolean;
   loadingFormConfigs: boolean;
   isNewDatasource: boolean;
@@ -91,6 +101,7 @@ interface StateProps extends JSONtoFormProps {
   isDatasourceBeingSaved: boolean;
   isDatasourceBeingSavedFromPopup: boolean;
   isFormDirty: boolean;
+  isPluginAuthorized: boolean;
   gsheetToken?: string;
   gsheetProjectID?: string;
   showDebugger: boolean;
@@ -107,6 +118,7 @@ interface DatasourceFormFunctions {
   setDatasourceViewMode: (viewMode: boolean) => void;
   loadFilePickerAction: () => void;
   datasourceDiscardAction: (pluginId: string) => void;
+  initializeDatasource: (values: any) => void;
 }
 
 type DatasourceSaaSEditorProps = StateProps &
@@ -144,6 +156,7 @@ type RouteProps = {
 type SaasEditorWrappperState = {
   requiredFields: Record<string, ControlProps>;
   configDetails: Record<string, string>;
+  currentEditingEnvironment: string;
 };
 class SaasEditorWrapper extends React.Component<
   SaasEditorWrappperProps,
@@ -154,6 +167,7 @@ class SaasEditorWrapper extends React.Component<
     this.state = {
       requiredFields: {},
       configDetails: {},
+      currentEditingEnvironment: getCurrentEnvironment(),
     };
   }
 
@@ -161,7 +175,6 @@ class SaasEditorWrapper extends React.Component<
     // if the datasource id changes, we need to reset the required fields and configDetails
     if (this.props.datasourceId !== prevProps.datasourceId) {
       this.setState({
-        ...this.state,
         requiredFields: {},
         configDetails: {},
       });
@@ -176,7 +189,6 @@ class SaasEditorWrapper extends React.Component<
     configDetails[configProperty] = controlType;
     if (isRequired) requiredFields[configProperty] = config;
     this.setState({
-      ...this.state,
       configDetails,
       requiredFields,
     });
@@ -187,6 +199,7 @@ class SaasEditorWrapper extends React.Component<
       <SaaSEditor
         {...this.props}
         configDetails={this.state.configDetails}
+        currentEnvironment={this.state.currentEditingEnvironment}
         requiredFields={this.state.requiredFields}
         setupConfig={this.setupConfig}
       />
@@ -218,6 +231,17 @@ class DatasourceSaaSEditor extends JSONtoForm<Props, State> {
     const pluginId = urlObject?.searchParams?.get("pluginId");
     // update block state when form becomes dirty/view mode is switched on
 
+    // if the datasource configurations (except the name) has changed, we reinitialize the form.
+    // this is to allow for cases when the datasource has been authorized
+    if (
+      !isEqual(
+        omit(this.props.datasource, "name"),
+        omit(prevProps.datasource, "name"),
+      )
+    ) {
+      this.props.initializeDatasource(omit(this.props.datasource, "name"));
+    }
+
     if (
       prevProps.viewMode !== this.props.viewMode &&
       !this.props.viewMode &&
@@ -247,6 +271,12 @@ class DatasourceSaaSEditor extends JSONtoForm<Props, State> {
   componentDidMount() {
     const urlObject = new URL(window?.location?.href);
     const pluginId = urlObject?.searchParams?.get("pluginId");
+
+    // if there are no initial values, it means the form has not been initialized, hence we initialize the form.
+    if (!this.props.initialValues) {
+      this.props.initializeDatasource(omit(this.props.datasource, "name"));
+    }
+
     // Create Temp Datasource on component mount,
     // if user hasnt saved datasource for the first time and refreshed the page
     if (
@@ -348,7 +378,9 @@ class DatasourceSaaSEditor extends JSONtoForm<Props, State> {
       hiddenHeader,
       isDeleting,
       isInsideReconnectModal,
+      isPluginAuthorized,
       isSaving,
+      isTesting,
       pageId,
       plugin,
       pluginImage,
@@ -359,15 +391,7 @@ class DatasourceSaaSEditor extends JSONtoForm<Props, State> {
       viewMode,
     } = this.props;
 
-    /*
-      TODO: This flag will be removed once the multiple environment is merged to avoid design inconsistency between different datasources.
-      Search for: GoogleSheetPluginFlag to check for all the google sheet conditional logic throughout the code.
-    */
-    const isGoogleSheetPlugin =
-      pluginPackageName === PluginPackageName.GOOGLE_SHEETS;
-
-    const isPluginAuthorized =
-      plugin && isDatasourceAuthorizedForQueryCreation(formData, plugin);
+    const isGoogleSheetPlugin = isGoogleSheetPluginDS(pluginPackageName);
 
     const createFlow = datasourceId === TEMP_DATASOURCE_ID;
 
@@ -398,8 +422,7 @@ class DatasourceSaaSEditor extends JSONtoForm<Props, State> {
             datasourceId={datasourceId}
             isDeleting={isDeleting}
             isNewDatasource={createFlow}
-            isPluginAuthorized={isPluginAuthorized || false}
-            isSaving={isSaving}
+            isPluginAuthorized={isPluginAuthorized}
             pluginImage={pluginImage}
             pluginName={plugin?.name || ""}
             pluginType={plugin?.type || ""}
@@ -413,8 +436,9 @@ class DatasourceSaaSEditor extends JSONtoForm<Props, State> {
               onSubmit={(e) => {
                 e.preventDefault();
               }}
+              showFilterComponent={false}
             >
-              {(!viewMode || createFlow) && (
+              {(!viewMode || createFlow || isInsideReconnectModal) && (
                 <>
                   {/* This adds information banner when creating google sheets datasource,
               this info banner explains why appsmith requires permissions from users google account */}
@@ -425,9 +449,6 @@ class DatasourceSaaSEditor extends JSONtoForm<Props, State> {
                       datasource={datasource}
                       description={googleSheetsInfoMessage}
                       pageId={pageId}
-                      style={{
-                        paddingTop: "24px",
-                      }}
                     />
                   ) : null}
                   {/* This adds error banner for google sheets datasource if the datasource is unauthorised */}
@@ -439,31 +460,31 @@ class DatasourceSaaSEditor extends JSONtoForm<Props, State> {
                       datasource={datasource}
                       description={authErrorMessage}
                       pageId={pageId}
-                      style={{
-                        paddingTop: "24px",
-                      }}
                     />
                   ) : null}
-                  {!_.isNil(sections)
-                    ? _.map(sections, this.renderMainSection)
+                  {!isNil(sections)
+                    ? map(sections, this.renderMainSection)
                     : null}
                   {""}
                 </>
               )}
-              {viewMode && (
+              {viewMode && !isInsideReconnectModal && (
                 <ViewModeWrapper>
                   {datasource && isGoogleSheetPlugin && !isPluginAuthorized ? (
                     <AuthMessage
+                      actionType={ActionType.AUTHORIZE}
                       datasource={datasource}
                       description={authErrorMessage}
+                      isInViewMode
                       pageId={pageId}
                     />
                   ) : null}
-                  {!_.isNil(formConfig) &&
-                  !_.isNil(datasource) &&
+                  {!isNil(formConfig) &&
+                  !isNil(datasource) &&
                   !hideDatasourceSection ? (
                     <DatasourceInformation
                       config={formConfig[0]}
+                      currentEnvironment={this.props.currentEnvironment}
                       datasource={datasource}
                       viewMode={viewMode}
                     />
@@ -474,16 +495,23 @@ class DatasourceSaaSEditor extends JSONtoForm<Props, State> {
             {/* Render datasource form call-to-actions */}
             {datasource && (
               <DatasourceAuth
+                currentEnvironment={this.props.currentEnvironment}
                 datasource={datasource}
                 datasourceButtonConfiguration={datasourceButtonConfiguration}
-                deleteTempDSFromDraft={deleteTempDSFromDraft}
                 formData={formData}
-                getSanitizedFormData={_.memoize(this.getSanitizedData)}
+                getSanitizedFormData={memoize(this.getSanitizedData)}
                 isInsideReconnectModal={isInsideReconnectModal}
                 isInvalid={validate(this.props.requiredFields, formData)}
+                isSaving={isSaving}
+                isTesting={isTesting}
                 pageId={pageId}
+                pluginName={plugin?.name || ""}
+                pluginPackageName={pluginPackageName}
+                pluginType={plugin?.type as PluginType}
                 scopeValue={scopeValue}
+                setDatasourceViewMode={setDatasourceViewMode}
                 shouldDisplayAuthMessage={!isGoogleSheetPlugin}
+                showFilterComponent={false}
                 triggerSave={this.props.isDatasourceBeingSavedFromPopup}
                 viewMode={viewMode}
               />
@@ -516,19 +544,16 @@ const mapStateToProps = (state: AppState, props: any) => {
   const datasourceId = props.datasourceId || props.match?.params?.datasourceId;
   const { datasourcePane } = state.ui;
   const { datasources, plugins } = state.entities;
-  const viewMode = isDatasourceInViewMode(state);
+  let viewMode = isDatasourceInViewMode(state);
   const datasource = getDatasource(state, datasourceId);
   const { formConfigs } = plugins;
   const formData = getFormValues(DATASOURCE_SAAS_FORM)(state) as Datasource;
-  const pluginId = _.get(datasource, "pluginId", "");
+  const pluginId = get(datasource, "pluginId", "");
   const plugin = getPlugin(state, pluginId);
   const formConfig = formConfigs[pluginId];
-  const initialValues = {};
-  if (formConfig) {
-    merge(initialValues, getConfigInitialValues(formConfig));
-  }
-
-  merge(initialValues, datasource);
+  const initialValues = getFormInitialValues(DATASOURCE_SAAS_FORM)(
+    state,
+  ) as Datasource;
 
   // get scopeValue to be shown in analytical events
   const scopeValue = getDatasourceScopeValue(
@@ -539,7 +564,7 @@ const mapStateToProps = (state: AppState, props: any) => {
 
   const datasourceButtonConfiguration = getDatasourceFormButtonConfig(
     state,
-    formData?.pluginId,
+    pluginId,
   );
   const isFormDirty =
     datasourceId === TEMP_DATASOURCE_ID
@@ -568,6 +593,17 @@ const mapStateToProps = (state: AppState, props: any) => {
   // Debugger render flag
   const showDebugger = showDebuggerFlag(state);
 
+  const params: string = location.search;
+  const viewModeFromURLParams = new URLSearchParams(params).get("viewMode");
+  if (!!viewModeFromURLParams && viewModeFromURLParams?.length > 0) {
+    viewMode = viewModeFromURLParams === "true";
+  }
+
+  const isPluginAuthorized =
+    !!plugin && !!formData
+      ? isDatasourceAuthorizedForQueryCreation(formData, plugin)
+      : true;
+
   return {
     datasource,
     datasourceButtonConfiguration,
@@ -575,6 +611,7 @@ const mapStateToProps = (state: AppState, props: any) => {
     documentationLink: documentationLinks[pluginId],
     isSaving: datasources.loading,
     isDeleting: !!datasource?.isDeleting,
+    isTesting: datasources.isTesting,
     formData: formData,
     formConfig,
     viewMode: viewMode ?? !props.isInsideReconnectModal,
@@ -585,6 +622,7 @@ const mapStateToProps = (state: AppState, props: any) => {
     pluginPackageName:
       props.pluginPackageName || props.match?.params?.pluginPackageName,
     initialValues,
+    isPluginAuthorized,
     pluginId: pluginId,
     actions: state.entities.actions,
     formName: DATASOURCE_SAAS_FORM,
@@ -610,13 +648,23 @@ const mapDispatchToProps = (dispatch: any): DatasourceFormFunctions => ({
   toggleSaveActionFlag: (flag) => dispatch(toggleSaveActionFlag(flag)),
   toggleSaveActionFromPopupFlag: (flag) =>
     dispatch(toggleSaveActionFromPopupFlag(flag)),
-  setDatasourceViewMode: (viewMode: boolean) =>
-    dispatch(setDatasourceViewMode(viewMode)),
+  setDatasourceViewMode: (viewMode: boolean) => {
+    // Construct URLSearchParams object instance from current URL querystring.
+    const queryParams = new URLSearchParams(window.location.search);
+
+    queryParams.set("viewMode", viewMode.toString());
+    // Replace current querystring with the new one.
+    history.replaceState({}, "", "?" + queryParams.toString());
+
+    dispatch(setDatasourceViewMode(viewMode));
+  },
   createTempDatasource: (data: any) =>
     dispatch(createTempDatasourceFromForm(data)),
   loadFilePickerAction: () => dispatch(loadFilePickerAction()),
   datasourceDiscardAction: (pluginId) =>
     dispatch(datasourceDiscardAction(pluginId)),
+  initializeDatasource: (values: any) =>
+    dispatch(initialize(DATASOURCE_SAAS_FORM, values)),
 });
 
 const SaaSEditor = connect(
