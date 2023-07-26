@@ -2,7 +2,8 @@ name: Sync Fork
 
 on:
   workflow_dispatch:
-
+  schedule: 
+    - cron: '00 17 * * 0' ## Schedule the job to run at midnight monday.
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -10,13 +11,20 @@ jobs:
       contents: write
       
     steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v3
-
-      - name: GitHub Repo Sync
-        uses: repo-sync/github-sync@v2.3.0
-        with: 
-          source_repo: https://github.com/appsmithorg/appsmith
-          source_branch: release
-          downstream_branch: release
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          sync_tags: "true"
+        with:
+          persist-credentials: true
+          token: ${{ secrets.MLAB_APPSMITH_PAT }}
+          
+      - name: Sync public repository with commit history
+        uses: repo-sync/github-sync@v2
+        with:
+          source_repo: 'https://${{ secrets.MLAB_APPSMITH_PAT }}@github.com/appsmithorg/appsmith.git'
+          source_branch: 'release'
+          destination_branch: 'release'
+          github_token: ${{ secrets.MLAB_APPSMITH_PAT }}
+    
+      # Runs a single command using the runners shell
+      - name: Sync result      
+        run: echo success
