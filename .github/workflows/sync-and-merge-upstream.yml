@@ -3,7 +3,7 @@ name: Sync Fork
 on:
   workflow_dispatch:
   schedule: 
-    - cron: '00 17 * * 0' ## Schedule the job to run at midnight monday.
+    - cron: '00 17 * * 6' ## Schedule the job to run at midnight sunday.
 jobs:
   sync:
     runs-on: ubuntu-latest
